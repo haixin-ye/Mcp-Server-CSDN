@@ -1,0 +1,36 @@
+csdn:
+  api:
+    categories: Java面试经验分享
+    # 从操作系统的环境变量中动态读取，冒号后面可以留空作为默认值（如果没注入会报错提示）
+    cookie: ${CSDN_COOKIE:}
+    nonce: ${X_CA_NONCE:}
+    signature: ${X_CA_SIGNATURE:}
+
+spring:
+  application:
+    name: mcp-server-csdn
+
+  ai:
+    mcp:
+      server:
+        name: ${spring.application.name}
+        version: 1.0.0
+
+  main:
+    banner-mode: off
+    web-application-type: none
+
+logging:
+  level:
+    root: INFO
+  pattern:
+    console: ""
+  file:
+    name: data/log/${spring.application.name}.log
+
+server:
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+      enabled: true
