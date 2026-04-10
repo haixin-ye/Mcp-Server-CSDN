@@ -27,6 +27,6 @@ public class CSDNArticleService {
         log.info(" - 正文长度: {} 个字符", contentLength);
         log.info("==================================================");
 
-        return port.writeArticle(request);
+        return port.publishArticle(request);
     }
 }

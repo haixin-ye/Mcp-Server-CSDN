@@ -28,7 +28,7 @@ public class CSDNPort implements ICSDNPort {
     private CSDNApiProperties csdnApiProperties;
 
     @Override
-    public ArticleFunctionResponse writeArticle(ArticleFunctionRequest request) throws IOException {
+    public ArticleFunctionResponse publishArticle(ArticleFunctionRequest request) throws IOException {
 
         ArticleRequestDTO articleRequestDTO = new ArticleRequestDTO();
         articleRequestDTO.setTitle(request.getTitle());

@@ -7,6 +7,6 @@ import java.io.IOException;
 
 public interface ICSDNPort {
 
-    ArticleFunctionResponse writeArticle(ArticleFunctionRequest request) throws IOException;
+    ArticleFunctionResponse publishArticle(ArticleFunctionRequest request) throws IOException;
 
 }

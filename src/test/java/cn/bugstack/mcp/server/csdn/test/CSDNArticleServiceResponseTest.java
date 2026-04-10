@@ -79,7 +79,7 @@ public class CSDNArticleServiceResponseTest {
         private final ArticleFunctionResponse responseToReturn = new ArticleFunctionResponse();
 
         @Override
-        public ArticleFunctionResponse writeArticle(ArticleFunctionRequest request) throws IOException {
+        public ArticleFunctionResponse publishArticle(ArticleFunctionRequest request) throws IOException {
             this.invokedRequest = request;
             responseToReturn.setStatus("SUCCESS");
             responseToReturn.setMessage("ok");
