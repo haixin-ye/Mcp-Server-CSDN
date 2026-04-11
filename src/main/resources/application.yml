@@ -5,6 +5,9 @@ csdn:
     cookie: ${CSDN_COOKIE:}
     nonce: ${X_CA_NONCE:}
     signature: ${X_CA_SIGNATURE:}
+  session:
+    data-root: /app/data
+    login-timeout-minutes: 10
 
 spring:
   application:
