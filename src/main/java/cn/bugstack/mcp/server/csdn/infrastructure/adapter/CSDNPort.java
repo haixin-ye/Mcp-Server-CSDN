@@ -77,16 +77,44 @@ public class CSDNPort implements ICSDNPort {
 
         if (response.isSuccessful()) {
             ArticleResponseDTO articleResponseDTO = response.body();
-            if (null == articleResponseDTO) return null;
+            if (null == articleResponseDTO) {
+                ArticleFunctionResponse failed = new ArticleFunctionResponse();
+                failed.setStatus("FAILED");
+                failed.setMessage("CSDN 返回空响应体");
+                failed.setRetryable(Boolean.TRUE);
+                return failed;
+            }
+
+            if (articleResponseDTO.getCode() == null || articleResponseDTO.getCode() != 0) {
+                ArticleFunctionResponse failed = new ArticleFunctionResponse();
+                failed.setStatus("FAILED");
+                failed.setCode(articleResponseDTO.getCode());
+                String errorMessage = articleResponseDTO.getMsg() == null ? "CSDN 业务响应缺少成功状态码" : articleResponseDTO.getMsg();
+                failed.setMessage(errorMessage);
+                failed.setMsg(errorMessage);
+                failed.setRetryable(Boolean.TRUE);
+                return failed;
+            }
 
             ArticleFunctionResponse articleFunctionResponse = new ArticleFunctionResponse();
+            articleFunctionResponse.setStatus("SUCCESS");
+            articleFunctionResponse.setMessage(articleResponseDTO.getMsg());
             articleFunctionResponse.setCode(articleResponseDTO.getCode());
             articleFunctionResponse.setMsg(articleResponseDTO.getMsg());
+            if (articleResponseDTO.getData() != null) {
+                articleFunctionResponse.setArticleId(articleResponseDTO.getData().getId());
+                articleFunctionResponse.setArticleUrl(articleResponseDTO.getData().getUrl());
+            }
+            articleFunctionResponse.setRetryable(Boolean.FALSE);
 
             return articleFunctionResponse;
         }
 
-        return null;
+        ArticleFunctionResponse failed = new ArticleFunctionResponse();
+        failed.setStatus("FAILED");
+        failed.setMessage("CSDN 发帖失败");
+        failed.setRetryable(Boolean.TRUE);
+        return failed;
     }
 
 }
