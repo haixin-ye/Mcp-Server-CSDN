@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 
 @Component
@@ -69,5 +70,10 @@ public class FileSessionStore implements ISessionStore {
         Files.createDirectories(metadataPath.getParent());
         metadata.setUpdatedAt(LocalDateTime.now());
         objectMapper.writeValue(metadataPath.toFile(), metadata);
+    }
+
+    public void saveStorageState(String storageStateJson) throws IOException {
+        initialize();
+        Files.writeString(storageStatePath, storageStateJson, StandardCharsets.UTF_8);
     }
 }
