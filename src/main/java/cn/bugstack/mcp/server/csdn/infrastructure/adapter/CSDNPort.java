@@ -7,6 +7,7 @@ import cn.bugstack.mcp.server.csdn.domain.model.ArticleFunctionResponse;
 import cn.bugstack.mcp.server.csdn.domain.model.SessionMetadata;
 import cn.bugstack.mcp.server.csdn.domain.model.SessionState;
 import cn.bugstack.mcp.server.csdn.domain.service.LoginCoordinator;
+import cn.bugstack.mcp.server.csdn.domain.service.SessionManager;
 import cn.bugstack.mcp.server.csdn.infrastructure.gateway.ICSDNService;
 import cn.bugstack.mcp.server.csdn.infrastructure.gateway.dto.ArticleRequestDTO;
 import cn.bugstack.mcp.server.csdn.infrastructure.gateway.dto.ArticleResponseDTO;
@@ -36,10 +37,18 @@ public class CSDNPort implements ICSDNPort {
     @Resource
     private LoginCoordinator loginCoordinator;
 
+    @Resource
+    private SessionManager sessionManager;
+
     @Override
     public ArticleFunctionResponse publishArticle(ArticleFunctionRequest request) throws IOException {
         SessionMetadata metadata = sessionStore.loadMetadata();
-        if (metadata.getState() == SessionState.UNBOUND || metadata.getState() == SessionState.EXPIRED) {
+        if (metadata == null) {
+            metadata = SessionMetadata.unbound();
+        }
+        SessionState sessionState = sessionManager.resolveSessionState(metadata);
+        metadata.setState(sessionState);
+        if (sessionState == SessionState.UNBOUND || sessionState == SessionState.EXPIRED) {
             ArticleFunctionResponse authRequired = loginCoordinator.buildAuthRequiredResponse(metadata);
             sessionStore.saveMetadata(metadata);
             return authRequired;
@@ -57,6 +66,14 @@ public class CSDNPort implements ICSDNPort {
         Response<ArticleResponseDTO> response = call.execute();
 
         log.info("请求CSDN发帖 \nreq:{} \nres:{}", JSON.toJSONString(articleRequestDTO), JSON.toJSONString(response));
+
+        if (sessionManager.isAuthFailure(response)) {
+            metadata.setState(SessionState.EXPIRED);
+            metadata.setLastError("CSDN 发布鉴权失败，需要重新登录");
+            ArticleFunctionResponse authRequired = loginCoordinator.buildAuthRequiredResponse(metadata);
+            sessionStore.saveMetadata(metadata);
+            return authRequired;
+        }
 
         if (response.isSuccessful()) {
             ArticleResponseDTO articleResponseDTO = response.body();
