@@ -23,7 +23,7 @@ public class LoginCoordinator {
             metadata.setPendingLoginSessionId(sessionId);
         }
 
-        String loginUrl = sessionProperties.getPublicBaseUrl() + "/auth/csdn/login?session=" + sessionId;
+        String loginUrl = buildLoginUrl(sessionId);
         metadata.setPendingLoginUrl(loginUrl);
 
         ArticleFunctionResponse response = new ArticleFunctionResponse();
@@ -33,5 +33,9 @@ public class LoginCoordinator {
         response.setLoginUrl(loginUrl);
         response.setRetryable(Boolean.TRUE);
         return response;
+    }
+
+    public String buildLoginUrl(String sessionId) {
+        return sessionProperties.getPublicBaseUrl() + "/auth/csdn/login?session=" + sessionId;
     }
 }

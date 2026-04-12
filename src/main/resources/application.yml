@@ -21,7 +21,7 @@ spring:
 
   main:
     banner-mode: off
-    web-application-type: none
+    web-application-type: servlet
 
 logging:
   level:
