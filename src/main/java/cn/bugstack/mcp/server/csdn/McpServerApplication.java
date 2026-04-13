@@ -1,8 +1,8 @@
 package cn.bugstack.mcp.server.csdn;
 
+import cn.bugstack.mcp.server.csdn.domain.adapter.ISessionStore;
 import cn.bugstack.mcp.server.csdn.domain.service.CSDNArticleService;
 import cn.bugstack.mcp.server.csdn.infrastructure.gateway.ICSDNService;
-import cn.bugstack.mcp.server.csdn.types.properties.CSDNApiProperties;
 import jakarta.annotation.Resource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,7 +22,7 @@ public class McpServerApplication implements CommandLineRunner {
     private final Logger log = LoggerFactory.getLogger(McpServerApplication.class);
 
     @Resource
-    private CSDNApiProperties csdnApiProperties;
+    private ISessionStore sessionStore;
 
     public static void main(String[] args) {
         SpringApplication.run(McpServerApplication.class, args);
@@ -44,12 +44,8 @@ public class McpServerApplication implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
-//        log.info("check csdn cookie ...");
-        if (csdnApiProperties.getCookie() == null) {
-            log.warn("csdn cookie key is null, please set it in application.yml");
-        } else {
-            log.info("csdn cookie  key is {}", csdnApiProperties.getCookie());
-        }
+        sessionStore.initialize();
+        log.info("session storage initialized, waiting for publishArticle calls.");
     }
 
 }

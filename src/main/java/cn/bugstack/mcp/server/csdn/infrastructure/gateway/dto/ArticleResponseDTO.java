@@ -8,6 +8,7 @@ public class ArticleResponseDTO {
     private String traceId;
     private ArticleData data;
     private String msg;
+    private String message;
 
     @Data
     public static class ArticleData {

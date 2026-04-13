@@ -1,0 +1,10 @@
+services:
+  mcp-server-csdn:
+    image: mcp-server-csdn:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mcp-server-csdn
+    ports:
+      - "18080:18080"
+    restart: unless-stopped

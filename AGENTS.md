@@ -18,6 +18,8 @@ Use Java 17 and Maven.
 - `mvn test`: run the test suite only
 - `mvn spring-boot:run`: start the MCP server locally
 - `java -jar target/mcp-server-csdn-1.0.0.jar`: run the packaged application
+- `docker build -t mcp-server-csdn .`: 构建本地 Docker 镜像
+- `docker run -p 18080:18080 mcp-server-csdn`: 运行本地 MCP 服务容器
 
 Set required credentials before local runs, for example: `CSDN_COOKIE`, `X_CA_NONCE`, and `X_CA_SIGNATURE`.
 
