@@ -3,10 +3,12 @@ package cn.bugstack.mcp.server.csdn.test;
 import cn.bugstack.mcp.server.csdn.domain.adapter.ISessionStore;
 import cn.bugstack.mcp.server.csdn.domain.model.ArticleFunctionRequest;
 import cn.bugstack.mcp.server.csdn.domain.model.ArticleFunctionResponse;
+import cn.bugstack.mcp.server.csdn.domain.model.CSDNAuthState;
 import cn.bugstack.mcp.server.csdn.domain.model.SessionMetadata;
 import cn.bugstack.mcp.server.csdn.domain.model.SessionState;
 import cn.bugstack.mcp.server.csdn.domain.service.LoginCoordinator;
 import cn.bugstack.mcp.server.csdn.domain.service.SessionManager;
+import cn.bugstack.mcp.server.csdn.infrastructure.adapter.CSDNBrowserAuthAdapter;
 import cn.bugstack.mcp.server.csdn.infrastructure.adapter.CSDNPort;
 import cn.bugstack.mcp.server.csdn.infrastructure.gateway.ICSDNService;
 import cn.bugstack.mcp.server.csdn.infrastructure.gateway.dto.ArticleResponseDTO;
@@ -22,6 +24,7 @@ import retrofit2.Response;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import java.util.Optional;
 
 public class CSDNPortMappingTest {
 
@@ -33,6 +36,7 @@ public class CSDNPortMappingTest {
         ReflectionTestUtils.setField(port, "sessionManager", new SessionManager());
         ReflectionTestUtils.setField(port, "csdnApiProperties", new CSDNApiProperties());
         ReflectionTestUtils.setField(port, "csdnService", new SuccessService());
+        ReflectionTestUtils.setField(port, "browserAuthAdapter", new StubBrowserAuthAdapter(successResponse(), true));
 
         ArticleFunctionResponse response = port.publishArticle(new ArticleFunctionRequest());
 
@@ -50,6 +54,7 @@ public class CSDNPortMappingTest {
         ReflectionTestUtils.setField(port, "sessionManager", new SessionManager());
         ReflectionTestUtils.setField(port, "csdnApiProperties", new CSDNApiProperties());
         ReflectionTestUtils.setField(port, "csdnService", new FailedService());
+        ReflectionTestUtils.setField(port, "browserAuthAdapter", new StubBrowserAuthAdapter(new ArticleResponseDTO(), false));
 
         ArticleFunctionResponse response = port.publishArticle(new ArticleFunctionRequest());
 
@@ -65,6 +70,7 @@ public class CSDNPortMappingTest {
         ReflectionTestUtils.setField(port, "sessionManager", new SessionManager());
         ReflectionTestUtils.setField(port, "csdnApiProperties", new CSDNApiProperties());
         ReflectionTestUtils.setField(port, "csdnService", new BusinessFailedService());
+        ReflectionTestUtils.setField(port, "browserAuthAdapter", new StubBrowserAuthAdapter(businessFailedResponse(), true));
 
         ArticleFunctionResponse response = port.publishArticle(new ArticleFunctionRequest());
 
@@ -81,6 +87,7 @@ public class CSDNPortMappingTest {
         ReflectionTestUtils.setField(port, "sessionManager", new SessionManager());
         ReflectionTestUtils.setField(port, "csdnApiProperties", new CSDNApiProperties());
         ReflectionTestUtils.setField(port, "csdnService", new NullBodyService());
+        ReflectionTestUtils.setField(port, "browserAuthAdapter", new StubBrowserAuthAdapter(null, true));
 
         ArticleFunctionResponse response = port.publishArticle(new ArticleFunctionRequest());
 
@@ -96,6 +103,7 @@ public class CSDNPortMappingTest {
         ReflectionTestUtils.setField(port, "sessionManager", new SessionManager());
         ReflectionTestUtils.setField(port, "csdnApiProperties", new CSDNApiProperties());
         ReflectionTestUtils.setField(port, "csdnService", new NullCodeService());
+        ReflectionTestUtils.setField(port, "browserAuthAdapter", new StubBrowserAuthAdapter(nullCodeResponse(), true));
 
         ArticleFunctionResponse response = port.publishArticle(new ArticleFunctionRequest());
 
@@ -119,6 +127,45 @@ public class CSDNPortMappingTest {
         @Override
         public void saveMetadata(SessionMetadata metadata) {
         }
+
+        @Override
+        public Optional<CSDNAuthState> loadAuthState() {
+            CSDNAuthState authState = new CSDNAuthState();
+            authState.setCookie("cookie=value");
+            return Optional.of(authState);
+        }
+
+        @Override
+        public void saveAuthState(CSDNAuthState authState) {
+        }
+
+        @Override
+        public void clearAuthState() {
+        }
+    }
+
+    private static ArticleResponseDTO successResponse() {
+        ArticleResponseDTO responseDTO = new ArticleResponseDTO();
+        responseDTO.setCode(0);
+        responseDTO.setMsg("ok");
+        ArticleResponseDTO.ArticleData data = new ArticleResponseDTO.ArticleData();
+        data.setId(1001L);
+        data.setUrl("https://blog.csdn.net/article/details/1001");
+        responseDTO.setData(data);
+        return responseDTO;
+    }
+
+    private static ArticleResponseDTO businessFailedResponse() {
+        ArticleResponseDTO responseDTO = new ArticleResponseDTO();
+        responseDTO.setCode(10001);
+        responseDTO.setMsg("涓氬姟澶辫触");
+        return responseDTO;
+    }
+
+    private static ArticleResponseDTO nullCodeResponse() {
+        ArticleResponseDTO responseDTO = new ArticleResponseDTO();
+        responseDTO.setMsg("缂哄皯code");
+        return responseDTO;
     }
 
     private static class SuccessService implements ICSDNService {
@@ -137,6 +184,22 @@ public class CSDNPortMappingTest {
             data.setUrl("https://blog.csdn.net/article/details/1001");
             responseDTO.setData(data);
             return new StaticCall<>(Response.success(responseDTO));
+        }
+    }
+
+    private static class StubBrowserAuthAdapter extends CSDNBrowserAuthAdapter {
+
+        private final ArticleResponseDTO body;
+        private final boolean successful;
+
+        private StubBrowserAuthAdapter(ArticleResponseDTO body, boolean successful) {
+            this.body = body;
+            this.successful = successful;
+        }
+
+        @Override
+        public Optional<BrowserPublishResult> publishArticleInBrowser(String cookieHeader, cn.bugstack.mcp.server.csdn.infrastructure.gateway.dto.ArticleRequestDTO articleRequestDTO) {
+            return Optional.of(new BrowserPublishResult(200, successful, body, body == null ? "" : "{}", cookieHeader));
         }
     }
 

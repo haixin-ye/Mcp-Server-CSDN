@@ -2,10 +2,9 @@ package cn.bugstack.mcp.server.csdn.domain.service;
 
 import cn.bugstack.mcp.server.csdn.domain.model.ArticleFunctionResponse;
 import cn.bugstack.mcp.server.csdn.domain.model.SessionMetadata;
+import cn.bugstack.mcp.server.csdn.domain.model.SessionState;
 import cn.bugstack.mcp.server.csdn.types.properties.CSDNSessionProperties;
 import org.springframework.stereotype.Service;
-
-import java.util.UUID;
 
 @Service
 public class LoginCoordinator {
@@ -17,14 +16,15 @@ public class LoginCoordinator {
     }
 
     public ArticleFunctionResponse buildAuthRequiredResponse(SessionMetadata metadata) {
-        String sessionId = metadata.getPendingLoginSessionId();
+        String sessionId = sessionProperties.getFixedSessionId();
         if (sessionId == null || sessionId.isBlank()) {
-            sessionId = UUID.randomUUID().toString();
-            metadata.setPendingLoginSessionId(sessionId);
+            sessionId = "default";
         }
+        metadata.setPendingLoginSessionId(sessionId);
 
         String loginUrl = buildLoginUrl(sessionId);
         metadata.setPendingLoginUrl(loginUrl);
+        metadata.setState(SessionState.LOGIN_PENDING);
 
         ArticleFunctionResponse response = new ArticleFunctionResponse();
         response.setStatus("AUTH_REQUIRED");

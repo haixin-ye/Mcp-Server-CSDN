@@ -2,6 +2,7 @@ package cn.bugstack.mcp.server.csdn.domain.service;
 
 import cn.bugstack.mcp.server.csdn.domain.model.SessionMetadata;
 import cn.bugstack.mcp.server.csdn.domain.model.SessionState;
+import cn.bugstack.mcp.server.csdn.domain.model.CSDNAuthState;
 import cn.bugstack.mcp.server.csdn.infrastructure.gateway.dto.ArticleResponseDTO;
 import org.springframework.stereotype.Service;
 import retrofit2.Response;
@@ -17,6 +18,16 @@ public class SessionManager {
         }
 
         return metadata.getState();
+    }
+
+    public boolean shouldRequireLogin(SessionState sessionState) {
+        return sessionState == SessionState.UNBOUND
+                || sessionState == SessionState.EXPIRED;
+    }
+
+    public boolean isAuthStateUsable(CSDNAuthState authState) {
+        return authState != null
+                && hasText(authState.getCookie());
     }
 
     public boolean isAuthFailure(Response<ArticleResponseDTO> response) {
@@ -39,5 +50,9 @@ public class SessionManager {
 
     private boolean containsLoginKeyword(String message) {
         return message != null && message.contains(LOGIN_KEYWORD);
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }

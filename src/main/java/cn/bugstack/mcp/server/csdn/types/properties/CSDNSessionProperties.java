@@ -9,8 +9,9 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "csdn.session")
 public class CSDNSessionProperties {
 
-    private String dataRoot = "/app/data";
+    private String dataRoot = "./data";
     private Integer loginTimeoutMinutes = 10;
     private String publicBaseUrl = "http://127.0.0.1:18080";
+    private String fixedSessionId = "default";
 
 }

@@ -1,6 +1,7 @@
 package cn.bugstack.mcp.server.csdn.infrastructure.adapter;
 
 import cn.bugstack.mcp.server.csdn.domain.adapter.ISessionStore;
+import cn.bugstack.mcp.server.csdn.domain.model.CSDNAuthState;
 import cn.bugstack.mcp.server.csdn.domain.model.SessionMetadata;
 import cn.bugstack.mcp.server.csdn.types.properties.CSDNSessionProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 @Component
 public class FileSessionStore implements ISessionStore {
@@ -20,18 +22,21 @@ public class FileSessionStore implements ISessionStore {
     private static final String SESSION_DIRECTORY_NAME = "session";
     private static final String SESSION_METADATA_FILE_NAME = "session-meta.json";
     private static final String STORAGE_STATE_FILE_NAME = "storage-state.json";
+    private static final String AUTH_STATE_FILE_NAME = "auth-state.json";
     private static final Path DEFAULT_SESSION_ROOT = Path.of("/app/data").resolve(SESSION_DIRECTORY_NAME);
     private static final Path FALLBACK_SESSION_ROOT = Path.of("data").resolve(SESSION_DIRECTORY_NAME);
 
     private Path sessionRoot;
     private Path metadataPath;
     private Path storageStatePath;
+    private Path authStatePath;
     private final ObjectMapper objectMapper;
 
     public FileSessionStore(CSDNSessionProperties properties) {
         this.sessionRoot = Path.of(properties.getDataRoot()).resolve(SESSION_DIRECTORY_NAME);
         this.metadataPath = sessionRoot.resolve(SESSION_METADATA_FILE_NAME);
         this.storageStatePath = sessionRoot.resolve(STORAGE_STATE_FILE_NAME);
+        this.authStatePath = sessionRoot.resolve(AUTH_STATE_FILE_NAME);
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
         this.objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -46,6 +51,7 @@ public class FileSessionStore implements ISessionStore {
                 sessionRoot = FALLBACK_SESSION_ROOT;
                 metadataPath = sessionRoot.resolve(SESSION_METADATA_FILE_NAME);
                 storageStatePath = sessionRoot.resolve(STORAGE_STATE_FILE_NAME);
+                authStatePath = sessionRoot.resolve(AUTH_STATE_FILE_NAME);
                 Files.createDirectories(sessionRoot);
                 return;
             }
@@ -75,5 +81,28 @@ public class FileSessionStore implements ISessionStore {
     public void saveStorageState(String storageStateJson) throws IOException {
         initialize();
         Files.writeString(storageStatePath, storageStateJson, StandardCharsets.UTF_8);
+    }
+
+    @Override
+    public Optional<CSDNAuthState> loadAuthState() throws IOException {
+        initialize();
+        if (Files.notExists(authStatePath)) {
+            return Optional.empty();
+        }
+        CSDNAuthState authState = objectMapper.readValue(authStatePath.toFile(), CSDNAuthState.class);
+        return Optional.ofNullable(authState);
+    }
+
+    @Override
+    public void saveAuthState(CSDNAuthState authState) throws IOException {
+        initialize();
+        authState.setUpdatedAt(LocalDateTime.now());
+        objectMapper.writeValue(authStatePath.toFile(), authState);
+    }
+
+    @Override
+    public void clearAuthState() throws IOException {
+        initialize();
+        Files.deleteIfExists(authStatePath);
     }
 }

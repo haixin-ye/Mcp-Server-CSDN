@@ -1,14 +1,15 @@
 package cn.bugstack.mcp.server.csdn.test;
 
-import cn.bugstack.mcp.server.csdn.infrastructure.adapter.CSDNBrowserAuthAdapter;
+import cn.bugstack.mcp.server.csdn.domain.model.CSDNAuthState;
 import cn.bugstack.mcp.server.csdn.infrastructure.adapter.FileSessionStore;
 import cn.bugstack.mcp.server.csdn.types.properties.CSDNSessionProperties;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class CSDNBrowserAuthAdapterTest {
@@ -26,8 +27,19 @@ public class CSDNBrowserAuthAdapterTest {
     }
 
     @Test
-    public void test_captureStorageState_shouldThrowUntilImplemented() {
-        CSDNBrowserAuthAdapter adapter = new CSDNBrowserAuthAdapter();
-        assertThrows(UnsupportedOperationException.class, () -> adapter.captureStorageState("http://127.0.0.1:18080/auth/csdn/login?session=test"));
+    public void test_captureStorageState_shouldThrowUntilImplemented() throws Exception {
+        Path tempDir = Files.createTempDirectory("csdn-browser-auth-state");
+        CSDNSessionProperties properties = new CSDNSessionProperties();
+        properties.setDataRoot(tempDir.toString());
+        FileSessionStore store = new FileSessionStore(properties);
+
+        CSDNAuthState authState = new CSDNAuthState();
+        authState.setCookie("cookie=value");
+        store.saveAuthState(authState);
+
+        Optional<CSDNAuthState> loaded = store.loadAuthState();
+
+        assertTrue(loaded.isPresent());
+        assertEquals("cookie=value", loaded.get().getCookie());
     }
 }

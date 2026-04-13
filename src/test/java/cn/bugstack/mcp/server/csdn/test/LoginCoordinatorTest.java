@@ -3,6 +3,7 @@ package cn.bugstack.mcp.server.csdn.test;
 import cn.bugstack.mcp.server.csdn.domain.adapter.ISessionStore;
 import cn.bugstack.mcp.server.csdn.domain.model.ArticleFunctionRequest;
 import cn.bugstack.mcp.server.csdn.domain.model.ArticleFunctionResponse;
+import cn.bugstack.mcp.server.csdn.domain.model.CSDNAuthState;
 import cn.bugstack.mcp.server.csdn.domain.model.SessionMetadata;
 import cn.bugstack.mcp.server.csdn.domain.model.SessionState;
 import cn.bugstack.mcp.server.csdn.domain.service.LoginCoordinator;
@@ -25,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import java.util.Optional;
 
 public class LoginCoordinatorTest {
 
@@ -43,7 +45,7 @@ public class LoginCoordinatorTest {
         assertNotNull(response.getMessage());
         assertTrue(response.getMessage().contains("登录"));
         assertEquals(response.getMessage(), response.getMsg());
-        assertEquals("https://mcp.example.com/auth/csdn/login?session=session-123", response.getLoginUrl());
+        assertEquals("https://mcp.example.com/auth/csdn/login?session=default", response.getLoginUrl());
         assertTrue(Boolean.TRUE.equals(response.getRetryable()));
         assertNull(response.getArticleId());
         assertNull(response.getArticleUrl());
@@ -77,7 +79,7 @@ public class LoginCoordinatorTest {
         ArticleFunctionResponse response = port.publishArticle(new ArticleFunctionRequest());
 
         assertEquals("AUTH_REQUIRED", response.getStatus());
-        assertEquals("http://127.0.0.1:18080/auth/csdn/login?session=session-unbound", response.getLoginUrl());
+        assertEquals("http://127.0.0.1:18080/auth/csdn/login?session=default", response.getLoginUrl());
         assertTrue(sessionStore.saveCalled);
         assertSame(sessionStore.metadata, sessionStore.savedMetadata);
     }
@@ -95,7 +97,7 @@ public class LoginCoordinatorTest {
         ArticleFunctionResponse response = port.publishArticle(new ArticleFunctionRequest());
 
         assertEquals("AUTH_REQUIRED", response.getStatus());
-        assertEquals("http://127.0.0.1:18080/auth/csdn/login?session=session-expired", response.getLoginUrl());
+        assertEquals("http://127.0.0.1:18080/auth/csdn/login?session=default", response.getLoginUrl());
         assertTrue(sessionStore.saveCalled);
         assertSame(sessionStore.metadata, sessionStore.savedMetadata);
     }
@@ -113,7 +115,7 @@ public class LoginCoordinatorTest {
         ArticleFunctionResponse response = port.publishArticle(new ArticleFunctionRequest());
 
         assertEquals("AUTH_REQUIRED", response.getStatus());
-        assertEquals(SessionState.EXPIRED, sessionStore.metadata.getState());
+        assertEquals(SessionState.LOGIN_PENDING, sessionStore.metadata.getState());
         assertNotNull(sessionStore.metadata.getLastError());
         assertTrue(sessionStore.metadata.getLastError().contains("\u767B\u5F55"));
         assertTrue(sessionStore.saveCalled);
@@ -154,6 +156,19 @@ public class LoginCoordinatorTest {
         public void saveMetadata(SessionMetadata metadata) {
             this.saveCalled = true;
             this.savedMetadata = metadata;
+        }
+
+        @Override
+        public Optional<CSDNAuthState> loadAuthState() {
+            return Optional.empty();
+        }
+
+        @Override
+        public void saveAuthState(CSDNAuthState authState) {
+        }
+
+        @Override
+        public void clearAuthState() {
         }
     }
 
