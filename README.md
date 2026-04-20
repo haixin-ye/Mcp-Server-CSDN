@@ -1,66 +1,97 @@
 # CSDN MCP Server
 
-一个面向 CSDN 发帖场景的 MCP Server，让 Agent 或其他 MCP Client 通过标准 MCP 协议完成草稿保存与发帖，而不需要手工维护 Cookie、签名头或浏览器自动化细节。
-
 ![Java 17](https://img.shields.io/badge/Java-17-blue)
 ![Spring Boot 3.4](https://img.shields.io/badge/Spring%20Boot-3.4-green)
-![MCP SSE](https://img.shields.io/badge/MCP-SSE-orange)
+![Spring AI MCP](https://img.shields.io/badge/Spring%20AI-MCP-orange)
+![Playwright](https://img.shields.io/badge/Playwright-Browser%20Automation-2EAD33)
 ![Docker Ready](https://img.shields.io/badge/Docker-Ready-2496ED)
 
-## 目录
+一个面向 **CSDN 自动发帖场景** 的 MCP Server。  
+它为 Agent 或其他 MCP Client 提供统一的 `publishArticle` 工具入口，让调用方通过标准 MCP 协议完成 **登录引导、正文写入、草稿保存与状态返回**，而不需要自己处理 Cookie、动态签名头或浏览器自动化细节。
 
-- [项目简介](#项目简介)
-- [核心特性](#核心特性)
-- [工作方式](#工作方式)
-- [快速开始](#快速开始)
-- [Docker Desktop 部署](#docker-desktop-部署)
-- [MCP 接入](#mcp-接入)
-- [首次使用流程](#首次使用流程)
-- [常见问题](#常见问题)
-- [项目结构](#项目结构)
-- [Contributing](#contributing)
-- [Roadmap](#roadmap)
-- [License](#license)
+## 一眼看懂
 
-## 项目简介
+- **对外只暴露一个核心工具**：`publishArticle`
+- **首次未登录时自动返回登录链接**
+- **登录态由服务端维护**
+- **发帖在真实 CSDN Markdown 编辑器页面内完成**
+- **支持本地运行与 Docker Desktop 部署**
+- **支持 SSE 模式接入 MCP**
 
-本项目基于 Java 17、Spring Boot、Spring AI MCP Server 与 Playwright 实现，适合运行在本地开发机、Docker Desktop 或自托管环境中。
+## 技术栈
 
-它解决的是这样一个问题：
+这个项目当前主要基于以下技术实现：
 
-- 调用方希望通过 MCP 让 Agent 自动发 CSDN 文章
-- 但不希望自己处理 Cookie、动态鉴权头和网页发帖流程
-- 同时又希望首次登录后，后续尽量自动化完成发帖
+- **Java 17**
+- **Spring Boot 3.4**
+- **Spring AI MCP Server**
+- **Playwright for Java**
+- **SSE（Server-Sent Events）**
+- **Docker / Docker Compose**
 
-本服务的核心目标是：
+`Playwright` 是这个项目的关键实现基础之一。  
+它负责进入已登录的 CSDN 编辑器页面，在浏览器上下文中完成标题写入、Markdown 正文写入和保存草稿动作，从而避免手工维护动态鉴权头。
 
-- 提供统一的 CSDN 发帖 MCP 能力
-- 首次使用时通过网页登录完成授权
-- 登录成功后由服务自身维护登录态
-- 后续通过浏览器上下文完成草稿保存与发帖动作
+## 它解决了什么问题
 
-## 核心特性
+如果直接做 CSDN 发帖接口调用，通常会遇到这些问题：
 
-- 单实例、单账号登录态维护
-- 首次未登录时自动返回登录链接
-- 登录失效自动识别并要求重新登录
-- 使用浏览器上下文执行保存草稿，避免手工维护动态签名
-- 支持本地运行与 Docker 部署
-- 支持 SSE 模式 MCP 接入
+- Cookie 会过期
+- 动态签名头不稳定
+- 发帖请求难以长期复用
+- 调用方不得不自己处理网页登录和鉴权细节
+
+这个服务的目标就是把这些复杂度收进服务端，调用方只需要：
+
+1. 连接 MCP 服务
+2. 调用 `publishArticle`
+3. 按需完成一次网页登录
+4. 后续继续调用同一个工具
 
 ## 工作方式
 
-这不是一个“缓存固定 Cookie 后反复调接口”的服务，而是一个“登录一次，后续由服务维护”的服务。
+这不是一个“固定 Cookie 反复调接口”的服务，而是一个“**登录一次，后续由服务维护登录态**”的服务。
 
 整体流程如下：
 
-1. 首次调用发帖工具时，如果没有可用登录态，服务返回登录链接。
-2. 用户打开登录链接，在内置页面中扫码登录 CSDN。
-3. 服务保存当前登录状态，并在后续请求中复用。
-4. 发帖时，服务进入 CSDN Markdown 编辑页，在已登录的浏览器上下文中完成标题、正文填充与保存草稿动作。
-5. 如果登录态失效，服务会自动识别并再次要求登录。
+```text
+Agent 调用 publishArticle
+        ↓
+若未登录，服务返回 AUTH_REQUIRED + loginUrl
+        ↓
+用户在浏览器打开 loginUrl 并扫码登录 CSDN
+        ↓
+服务保存登录态
+        ↓
+Agent 再次调用 publishArticle
+        ↓
+服务进入 CSDN Markdown 编辑器页面
+        ↓
+自动写入标题、Markdown 正文并保存草稿
+```
 
-这种实现方式的直接价值是：调用方不需要自己处理 `cookie`、`x-ca-nonce`、`x-ca-signature` 等动态鉴权参数。
+## 返回结果设计
+
+为了方便 Agent 正确处理不同状态，服务会返回结构化结果，而不是只给一个简单字符串。
+
+常见返回如下：
+
+| `status` | `reason` | 含义 |
+|---|---|---|
+| `SUCCESS` | `PUBLISHED` | 发帖或保存草稿成功 |
+| `AUTH_REQUIRED` | `LOGIN_REQUIRED` / `SESSION_EXPIRED` | 当前未登录或登录态失效，需要重新登录 |
+| `FAILED` | `RATE_LIMITED` | CSDN 限制了短时间重复发帖 |
+| `FAILED` | `CONTENT_WRITE_FAILED` | 已进入编辑器，但正文未成功写入 |
+| `FAILED` | `PUBLISH_FAILED` | 普通业务失败 |
+
+服务还会返回这些辅助字段：
+
+- `message`
+- `humanMessage`
+- `loginPath`
+- `loginUrl`
+- `nextAction`
+- `retryable`
 
 ## 快速开始
 
@@ -90,35 +121,41 @@ mvn spring-boot:run
 http://127.0.0.1:18080
 ```
 
-## Docker Desktop 部署
+## Docker 部署
 
-### 构建镜像
+### 1. 打包 Jar
 
 ```bash
-docker compose build
+mvn -q -DskipTests package
 ```
 
-### 启动容器
+### 2. 构建镜像
+
+```bash
+docker compose build --pull=false
+```
+
+### 3. 启动容器
 
 ```bash
 docker compose up -d
 ```
 
-### 查看日志
+### 4. 查看日志
 
 ```bash
 docker compose logs -f
 ```
 
-### 说明
+默认端口映射：
 
-- Docker Compose 文件位于根目录：[docker-compose.yml](./docker-compose.yml)
-- 默认端口映射为 `18080:18080`
-- 删除容器后，容器内部登录态会一起丢失
+```text
+18080:18080
+```
 
 ## MCP 接入
 
-当前服务以 SSE 方式对外提供 MCP 能力，典型配置如下：
+当前服务通过 **SSE** 提供 MCP 能力，接入配置示例：
 
 ```json
 {
@@ -127,29 +164,74 @@ docker compose logs -f
   "messageEndpoint": "/mcp/message"
 }
 ```
+请将127.0.0.1:18080替换为服务运行的地址以及端口号
 
-如果调用方运行在 Docker 容器内部，请将 `127.0.0.1` 替换为实际可访问该服务的宿主机地址或容器地址。
 
-## 首次使用流程
+## 如何使用这个 MCP 服务
 
-```text
-调用 publishArticle
-        ↓
-返回 AUTH_REQUIRED + loginUrl
-        ↓
-打开登录页并扫码登录 CSDN
-        ↓
-服务保存登录态
-        ↓
-再次调用 publishArticle
-        ↓
-服务进入编辑器页面并保存草稿 / 发帖
+### 首次使用
+
+1. 将 Agent 或 MCP Client 连接到本服务
+2. 调用 `publishArticle`
+3. 若当前未登录，服务返回：
+   - `status = AUTH_REQUIRED`
+   - `loginPath`
+   - `loginUrl`
+   - `nextAction = OPEN_LOGIN_URL`
+4. 在浏览器打开 `loginUrl`
+5. 扫码登录 CSDN
+6. 登录成功后，再次调用 `publishArticle`
+
+### 发帖请求示例
+
+```json
+{
+  "title": "Redis 多路复用技术详解",
+  "markdowncontent": "# Redis 多路复用技术详解\n\n## 引言\n这里是正文内容。",
+  "tags": "Redis,网络编程,数据库",
+  "description": "介绍 Redis 多路复用模型及其实现原理。"
+}
 ```
 
-也可以直接访问登录页：
+### 成功返回示例
+
+```json
+{
+  "status": "SUCCESS",
+  "reason": "PUBLISHED",
+  "articleId": 123456,
+  "articleUrl": "https://blog.csdn.net/..."
+}
+```
+
+### 未登录返回示例
+
+```json
+{
+  "status": "AUTH_REQUIRED",
+  "reason": "LOGIN_REQUIRED",
+  "loginUrl": "http://127.0.0.1:18080/auth/csdn/login?session=default",
+  "nextAction": "OPEN_LOGIN_URL",
+  "retryable": true
+}
+```
+
+## 默认登录页
+
+也可以直接访问默认登录页：
 
 ```text
 http://127.0.0.1:18080/auth/csdn/login?session=default
+```
+
+## 项目结构
+
+```text
+src/main/java/cn/bugstack/mcp/server/csdn
+├── domain          # 领域模型、服务、端口
+├── infrastructure  # 网关适配、浏览器发帖实现、SSE transport
+├── interfaces      # HTTP 接口与调试入口
+└── types           # 配置与通用工具
 ```
 
 ## 常见问题
@@ -160,58 +242,30 @@ http://127.0.0.1:18080/auth/csdn/login?session=default
 
 ### 为什么服务重启后通常还能继续使用？
 
-因为登录态会保存在服务本地数据目录中。只要当前实例的数据还在，就可以继续复用。
+因为登录态会保存在服务本地数据目录中。只要当前实例数据还在，就可以继续复用。
 
 ### 为什么删除容器后需要重新登录？
 
-因为当前设计就是“登录态保留在当前实例空间内”。删除容器等于删除实例数据。
+当前设计就是“登录态保留在当前实例空间内”。删除容器后，实例内数据会一起消失。
 
-### 为什么 `/sse` 返回 404？
+### 为什么会返回 `CONTENT_WRITE_FAILED`？
 
-通常是镜像没有使用最新构建结果，或者没有重新打包并重建容器。更新依赖后需要重新执行：
-
-```bash
-mvn -q -DskipTests package
-docker compose build
-docker compose up -d
-```
-
-## 项目结构
-
-```text
-src/main/java/cn/bugstack/mcp/server/csdn
-├── domain          # 领域模型、服务、端口
-├── infrastructure  # 网关适配、浏览器发帖实现、持久化
-├── interfaces      # HTTP 接口与调试入口
-└── types           # 配置与通用工具
-```
+这表示服务已经进入 CSDN 编辑器，但正文没有成功写入真实编辑器节点。通常属于页面结构变化或编辑器行为变化，需要重新适配自动化写入逻辑。
 
 ## Contributing
 
-欢迎在此基础上继续扩展，例如：
+欢迎继续扩展，例如：
 
 - 多账号支持
-- 更完整的发帖参数映射
-- 更稳定的页面选择器与编辑器适配
-- 更完整的 MCP Client 接入样例
+- 更完整的文章参数映射
+- 更稳定的 CSDN 编辑器适配
+- 更多 MCP Client 接入示例
 
-提交代码前建议先执行：
 
-```bash
-mvn -q test
-```
 
 ## Roadmap
 
-- 支持更完整的文章参数配置
-- 优化浏览器发帖链路的稳定性
-- 补充更完整的 Docker 与部署说明
-- 增加更多 MCP Client 接入示例
+- 持续优化浏览器发帖链路稳定性
+- 补充更多 Docker 与部署说明
+- 增加更多 Agent / MCP Client 接入示例
 
-## License
-
-当前仓库未单独提供许可证文件。如果你计划公开分发或开源发布，建议补充 `LICENSE` 文件后再对外发布。
-
-## 说明
-
-本项目当前以“单实例维护单账号登录态”为主要设计模式，更适合个人本地使用或单租户部署场景。
