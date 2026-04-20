@@ -15,51 +15,18 @@ public class ArticleFunctionRequest {
     private String title;
 
     @JsonProperty(required = true, value = "markdowncontent")
-    @JsonPropertyDescription("文章内容")
+    @JsonPropertyDescription("Markdown 正文内容")
     private String markdowncontent;
 
     @JsonProperty(required = true, value = "tags")
-    @JsonPropertyDescription("文章标签，英文逗号隔开")
+    @JsonPropertyDescription("文章标签，使用英文逗号分隔")
     private String tags;
 
-    @JsonProperty(required = true, value = "Description")
-    @JsonPropertyDescription("文章简述")
-    private String Description;
+    @JsonProperty(required = true, value = "description")
+    @JsonPropertyDescription("文章摘要")
+    private String description;
 
     public String getContent() {
         return MarkdownConverter.convertToHtml(markdowncontent);
-    }
-
-
-    public String getTitle() {
-        return title;
-    }
-
-    public void setTitle(String title) {
-        this.title = title;
-    }
-
-    public String getMarkdowncontent() {
-        return markdowncontent;
-    }
-
-    public void setMarkdowncontent(String markdowncontent) {
-        this.markdowncontent = markdowncontent;
-    }
-
-    public String getTags() {
-        return tags;
-    }
-
-    public void setTags(String tags) {
-        this.tags = tags;
-    }
-
-    public String getDescription() {
-        return Description;
-    }
-
-    public void setDescription(String description) {
-        Description = description;
     }
 }

@@ -8,7 +8,7 @@ csdn:
     data-root: ./data
     fixed-session-id: default
     login-timeout-minutes: 10
-    public-base-url: http://127.0.0.1:18080
+    public-base-url: ${CSDN_PUBLIC_BASE_URL:http://127.0.0.1:18080}
   debug:
     enabled: false
 
@@ -21,6 +21,9 @@ spring:
         name: ${spring.application.name}
         version: 1.0.0
         stdio: false
+  mvc:
+    async:
+      request-timeout: -1
   main:
     banner-mode: off
     web-application-type: servlet

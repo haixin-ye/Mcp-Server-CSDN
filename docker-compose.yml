@@ -4,7 +4,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: mcp-server-csdn
     ports:
       - "18080:18080"
     restart: unless-stopped

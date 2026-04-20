@@ -71,7 +71,13 @@ public class CSDNBrowserAuthAdapter {
                         }
                     } catch (Exception ignored) {
                     }
-                    resultRef.set(new BrowserPublishResult(statusCode, statusCode >= 200 && statusCode < 300, body, bodyText, capturedCookieRef.get()));
+                    resultRef.set(new BrowserPublishResult(
+                            statusCode,
+                            statusCode >= 200 && statusCode < 300,
+                            body,
+                            bodyText,
+                            capturedCookieRef.get()
+                    ));
                 }
             });
 
@@ -80,14 +86,24 @@ public class CSDNBrowserAuthAdapter {
             log.info("browser publish page loaded, url={}", page.url());
 
             boolean titleFilled = fillTitle(page, articleRequestDTO.getTitle());
-            boolean markdownFilled = fillMarkdown(page, articleRequestDTO.getMarkdowncontent());
-            log.info("browser publish fill result, titleFilled={}, markdownFilled={}", titleFilled, markdownFilled);
-            page.waitForTimeout(500);
+            MarkdownFillResult markdownFillResult = fillMarkdown(page, articleRequestDTO.getMarkdowncontent());
+            log.info("browser publish fill result, titleFilled={}, markdownFilled={}, strategy={}",
+                    titleFilled,
+                    markdownFillResult.filled(),
+                    markdownFillResult.strategy());
+
+            if (!markdownFillResult.filled()) {
+                log.warn("browser publish aborted because editor content could not be written");
+                context.close();
+                browser.close();
+                return Optional.of(BrowserPublishResult.validationFailure("编辑器正文写入失败，已中止保存。", capturedCookieRef.get()));
+            }
+
+            page.waitForTimeout(800);
 
             boolean shortcutTriggered = triggerSaveShortcut(page);
             log.info("browser publish shortcut result, triggered={}", shortcutTriggered);
 
-            // Try common actions in order. Any one that triggers saveArticle is acceptable.
             boolean clicked = clickDraftSaveAction(page);
             if (!clicked) {
                 clicked = clickAction(page, "保存草稿");
@@ -127,7 +143,6 @@ public class CSDNBrowserAuthAdapter {
         return Optional.empty();
     }
 
-    // Kept for retrofit fallback path compatibility.
     public Optional<CSDNDynamicHeaders> resolveDynamicHeaders(String cookieHeader) {
         return Optional.empty();
     }
@@ -139,8 +154,8 @@ public class CSDNBrowserAuthAdapter {
         String[] selectors = new String[] {
                 "input[placeholder*='标题']",
                 "input[placeholder*='请输入文章标题']",
-                "input[type='text']",
-                ".article-bar__title input"
+                ".article-bar__title input",
+                "input[type='text']"
         };
         for (String selector : selectors) {
             try {
@@ -154,6 +169,132 @@ public class CSDNBrowserAuthAdapter {
             }
         }
         return false;
+    }
+
+    private MarkdownFillResult fillMarkdown(Page page, String markdown) {
+        if (!hasText(markdown)) {
+            return new MarkdownFillResult(false, "empty");
+        }
+
+        String strategy = tryFillMarkdownPre(page, markdown);
+        if (strategy != null) {
+            return new MarkdownFillResult(true, strategy);
+        }
+
+        strategy = tryFillByEditorApi(page, markdown);
+        if (strategy != null) {
+            return new MarkdownFillResult(true, strategy);
+        }
+
+        strategy = tryFillByTextarea(page, markdown);
+        if (strategy != null) {
+            return new MarkdownFillResult(true, strategy);
+        }
+
+        return new MarkdownFillResult(false, "none");
+    }
+
+    private String tryFillMarkdownPre(Page page, String markdown) {
+        String[] selectors = new String[] {
+                "pre.editor__inner.markdown-highlighting",
+                "pre.editor__inner",
+                "pre[contenteditable='true']"
+        };
+
+        for (String selector : selectors) {
+            try {
+                Locator locator = page.locator(selector).first();
+                if (locator.isVisible()) {
+                    locator.click();
+                    page.keyboard().press("Control+A");
+                    page.keyboard().press("Backspace");
+                    page.evaluate(
+                            "({ selector, content }) => {" +
+                                    "const pre = document.querySelector(selector);" +
+                                    "if (!pre) return false;" +
+                                    "pre.focus();" +
+                                    "pre.textContent = content;" +
+                                    "pre.dispatchEvent(new InputEvent('input', { bubbles: true, data: content, inputType: 'insertText' }));" +
+                                    "pre.dispatchEvent(new Event('change', { bubbles: true }));" +
+                                    "return true;" +
+                                    "}",
+                            Map.of("selector", selector, "content", markdown)
+                    );
+                    page.waitForTimeout(300);
+                    return selector + "#dom-write";
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    private String tryFillByEditorApi(Page page, String markdown) {
+        try {
+            Object result = page.evaluate(
+                    "(content) => {" +
+                            "const lines = content.split('\\n');" +
+                            "try {" +
+                            "  if (window.monaco && window.monaco.editor && typeof window.monaco.editor.getModels === 'function') {" +
+                            "    const models = window.monaco.editor.getModels();" +
+                            "    if (models && models.length > 0) {" +
+                            "      models[0].setValue(content);" +
+                            "      return 'monaco-model';" +
+                            "    }" +
+                            "  }" +
+                            "} catch (e) {}" +
+                            "try {" +
+                            "  const cmElement = document.querySelector('.CodeMirror');" +
+                            "  if (cmElement && cmElement.CodeMirror) {" +
+                            "    cmElement.CodeMirror.setValue(content);" +
+                            "    return 'codemirror-instance';" +
+                            "  }" +
+                            "} catch (e) {}" +
+                            "try {" +
+                            "  const textareas = Array.from(document.querySelectorAll('textarea'));" +
+                            "  const best = textareas.find(el => (el.placeholder || '').includes('Markdown')) || textareas.find(el => el.clientHeight > 120) || textareas[0];" +
+                            "  if (best) {" +
+                            "    best.focus();" +
+                            "    best.value = content;" +
+                            "    best.dispatchEvent(new Event('input', { bubbles: true }));" +
+                            "    best.dispatchEvent(new Event('change', { bubbles: true }));" +
+                            "    return 'textarea-dom';" +
+                            "  }" +
+                            "} catch (e) {}" +
+                            "return null;" +
+                            "}",
+                    markdown
+            );
+            return result == null ? null : String.valueOf(result);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String tryFillByTextarea(Page page, String markdown) {
+        String[] selectors = new String[] {
+                "textarea[placeholder*='Markdown']",
+                "textarea[placeholder*='请输入内容']",
+                ".CodeMirror textarea",
+                ".monaco-editor textarea",
+                ".editor textarea",
+                "textarea"
+        };
+
+        for (String selector : selectors) {
+            try {
+                Locator locator = page.locator(selector).first();
+                if (locator.isVisible()) {
+                    locator.click();
+                    locator.press("Control+A");
+                    locator.fill("");
+                    locator.type(markdown, new Locator.TypeOptions().setDelay(1));
+                    return selector;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
     }
 
     private boolean clickDraftSaveAction(Page page) {
@@ -198,58 +339,6 @@ public class CSDNBrowserAuthAdapter {
         } catch (Exception ignored) {
         }
 
-        return false;
-    }
-
-    private boolean fillMarkdown(Page page, String markdown) {
-        if (!hasText(markdown)) {
-            return false;
-        }
-        try {
-            Object filled = page.evaluate(
-                    "(content) => {" +
-                            "const selectors = [" +
-                            "  \"textarea[placeholder*='Markdown']\"," +
-                            "  \"textarea\"," +
-                            "  \"[contenteditable='true']\"," +
-                            "  \".CodeMirror textarea\"," +
-                            "  \".monaco-editor textarea\"," +
-                            "  \".editor textarea\"" +
-                            "];" +
-                            "for (const sel of selectors) {" +
-                            "  const el = document.querySelector(sel);" +
-                            "  if (!el) continue;" +
-                            "  if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {" +
-                            "    el.focus();" +
-                            "    el.value = content;" +
-                            "    el.dispatchEvent(new Event('input', { bubbles: true }));" +
-                            "    el.dispatchEvent(new Event('change', { bubbles: true }));" +
-                            "    return true;" +
-                            "  }" +
-                            "  el.focus();" +
-                            "  el.innerText = content;" +
-                            "  el.dispatchEvent(new InputEvent('input', { bubbles: true, data: content }));" +
-                            "  return true;" +
-                            "}" +
-                            "return false;" +
-                            "}",
-                    markdown
-            );
-            if (Boolean.TRUE.equals(filled)) {
-                return true;
-            }
-        } catch (Exception ignored) {
-        }
-        try {
-            Locator editable = page.locator("[contenteditable='true']").first();
-            if (editable.isVisible()) {
-                editable.click();
-                page.keyboard().press("Control+A");
-                page.keyboard().insertText(markdown);
-                return true;
-            }
-        } catch (Exception ignored) {
-        }
         return false;
     }
 
@@ -316,7 +405,7 @@ public class CSDNBrowserAuthAdapter {
                             "const nodes = Array.from(document.querySelectorAll('button, [role=\"button\"], a, span, div'));" +
                             "return nodes" +
                             "  .map(node => (node.innerText || '').trim())" +
-                            "  .filter(text => text && text.length <= 20)" +
+                            "  .filter(text => text && text.length <= 30)" +
                             "  .filter(text => /保存|发布|草稿|文章/.test(text))" +
                             "  .slice(0, 20);" +
                             "}"
@@ -393,6 +482,13 @@ public class CSDNBrowserAuthAdapter {
             this.cookie = cookie;
         }
 
+        public static BrowserPublishResult validationFailure(String message, String cookie) {
+            ArticleResponseDTO body = new ArticleResponseDTO();
+            body.setCode(422);
+            body.setMsg(message);
+            return new BrowserPublishResult(422, false, body, "{\"msg\":\"" + message + "\"}", cookie);
+        }
+
         public int getStatusCode() {
             return statusCode;
         }
@@ -412,5 +508,8 @@ public class CSDNBrowserAuthAdapter {
         public String getCookie() {
             return cookie;
         }
+    }
+
+    private record MarkdownFillResult(boolean filled, String strategy) {
     }
 }

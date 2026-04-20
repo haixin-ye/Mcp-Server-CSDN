@@ -27,6 +27,14 @@ import java.time.LocalDateTime;
 @Component
 public class CSDNPort implements ICSDNPort {
 
+    private static final String LOGIN_REQUIRED_REASON = "LOGIN_REQUIRED";
+    private static final String SESSION_EXPIRED_REASON = "SESSION_EXPIRED";
+    private static final String PUBLISHED_REASON = "PUBLISHED";
+    private static final String PUBLISH_FAILED_REASON = "PUBLISH_FAILED";
+    private static final String RATE_LIMITED_REASON = "RATE_LIMITED";
+    private static final String CONTENT_WRITE_FAILED_REASON = "CONTENT_WRITE_FAILED";
+    private static final String EMPTY_RESPONSE_REASON = "EMPTY_RESPONSE";
+
     @Resource
     private ICSDNService csdnService;
 
@@ -55,7 +63,11 @@ public class CSDNPort implements ICSDNPort {
         SessionState sessionState = sessionManager.resolveSessionState(metadata);
         metadata.setState(sessionState);
         if (sessionManager.shouldRequireLogin(sessionState)) {
-            ArticleFunctionResponse authRequired = loginCoordinator.buildAuthRequiredResponse(metadata);
+            ArticleFunctionResponse authRequired = loginCoordinator.buildAuthRequiredResponse(
+                    metadata,
+                    LOGIN_REQUIRED_REASON,
+                    "当前未登录或登录态已失效。"
+            );
             sessionStore.saveMetadata(metadata);
             return authRequired;
         }
@@ -65,10 +77,15 @@ public class CSDNPort implements ICSDNPort {
                 metadata.getState(),
                 authState != null,
                 authState == null || authState.getCookie() == null ? 0 : authState.getCookie().length());
+
         if (!sessionManager.isAuthStateUsable(authState)) {
             metadata.setState(SessionState.UNBOUND);
             metadata.setLastError("未检测到可用登录态，请重新登录。");
-            ArticleFunctionResponse authRequired = loginCoordinator.buildAuthRequiredResponse(metadata);
+            ArticleFunctionResponse authRequired = loginCoordinator.buildAuthRequiredResponse(
+                    metadata,
+                    LOGIN_REQUIRED_REASON,
+                    "当前未检测到可用登录态。"
+            );
             sessionStore.saveMetadata(metadata);
             return authRequired;
         }
@@ -95,7 +112,11 @@ public class CSDNPort implements ICSDNPort {
         if (dynamicHeaders == null) {
             metadata.setState(SessionState.EXPIRED);
             metadata.setLastError("浏览器内发帖未完成，请重新登录后重试。");
-            ArticleFunctionResponse authRequired = loginCoordinator.buildAuthRequiredResponse(metadata);
+            ArticleFunctionResponse authRequired = loginCoordinator.buildAuthRequiredResponse(
+                    metadata,
+                    SESSION_EXPIRED_REASON,
+                    "当前登录态不可用。"
+            );
             sessionStore.saveMetadata(metadata);
             return authRequired;
         }
@@ -112,23 +133,28 @@ public class CSDNPort implements ICSDNPort {
                 dynamicHeaders.getSignature()
         );
         Response<ArticleResponseDTO> response = call.execute();
-        log.info("request CSDN publish (retrofit), req:{}, res:{}", JSON.toJSONString(articleRequestDTO), JSON.toJSONString(response));
+        log.info("request CSDN publish (retrofit), req:{}, res:{}",
+                JSON.toJSONString(articleRequestDTO),
+                JSON.toJSONString(response));
 
         if (sessionManager.isAuthFailure(response)) {
             metadata.setState(SessionState.EXPIRED);
-            metadata.setLastError("CSDN 鉴权失败，请重新登录。");
+            metadata.setLastError("CSDN 登录态已失效，请重新登录。");
             sessionStore.clearAuthState();
-            ArticleFunctionResponse authRequired = loginCoordinator.buildAuthRequiredResponse(metadata);
+            ArticleFunctionResponse authRequired = loginCoordinator.buildAuthRequiredResponse(
+                    metadata,
+                    SESSION_EXPIRED_REASON,
+                    "CSDN 登录态已失效。"
+            );
             sessionStore.saveMetadata(metadata);
             return authRequired;
         }
 
         if (!response.isSuccessful()) {
-            return buildFailedResponse("CSDN 发帖失败", true);
+            return buildFailedResponse(PUBLISH_FAILED_REASON, "CSDN 发帖失败，请稍后重试。", "RETRY", true);
         }
 
-        ArticleResponseDTO articleResponseDTO = response.body();
-        return mapResponseBody(articleResponseDTO, metadata);
+        return mapResponseBody(response.body(), metadata);
     }
 
     private ArticleRequestDTO buildArticleRequest(ArticleFunctionRequest request) {
@@ -158,15 +184,22 @@ public class CSDNPort implements ICSDNPort {
 
         if (isAuthFailure(browserResult.getStatusCode(), browserResult.getBody())) {
             metadata.setState(SessionState.EXPIRED);
-            metadata.setLastError("CSDN 鉴权失败，请重新登录。");
+            metadata.setLastError("CSDN 登录态已失效，请重新登录。");
             sessionStore.clearAuthState();
-            ArticleFunctionResponse authRequired = loginCoordinator.buildAuthRequiredResponse(metadata);
+            ArticleFunctionResponse authRequired = loginCoordinator.buildAuthRequiredResponse(
+                    metadata,
+                    SESSION_EXPIRED_REASON,
+                    "CSDN 登录态已失效。"
+            );
             sessionStore.saveMetadata(metadata);
             return authRequired;
         }
 
         if (!browserResult.isSuccessful()) {
-            return buildFailedResponse("CSDN 发帖失败", true);
+            if (browserResult.getBody() != null) {
+                return mapResponseBody(browserResult.getBody(), metadata);
+            }
+            return buildFailedResponse(PUBLISH_FAILED_REASON, "CSDN 发帖失败，请稍后重试。", "RETRY", true);
         }
 
         return mapResponseBody(browserResult.getBody(), metadata);
@@ -174,35 +207,104 @@ public class CSDNPort implements ICSDNPort {
 
     private ArticleFunctionResponse mapResponseBody(ArticleResponseDTO articleResponseDTO, SessionMetadata metadata) throws IOException {
         if (articleResponseDTO == null) {
-            return buildFailedResponse("CSDN 返回空响应体", true);
+            return buildFailedResponse(EMPTY_RESPONSE_REASON, "CSDN 返回空响应体。", "RETRY", true);
         }
 
-        if (articleResponseDTO.getCode() == null || articleResponseDTO.getCode() != 0) {
+        if (isPublishSuccess(articleResponseDTO)) {
+            ArticleFunctionResponse success = new ArticleFunctionResponse();
+            success.setStatus("SUCCESS");
+            success.setReason(PUBLISHED_REASON);
+            success.setCode(articleResponseDTO.getCode());
+            success.setMessage("CSDN 发帖成功。");
+            success.setMsg(success.getMessage());
+            success.setHumanMessage(articleResponseDTO.getData() != null && articleResponseDTO.getData().getUrl() != null
+                    ? "CSDN 发帖成功，文章地址：" + articleResponseDTO.getData().getUrl()
+                    : "CSDN 发帖成功。");
+            success.setNextAction("NONE");
+            success.setRetryable(Boolean.FALSE);
+            if (articleResponseDTO.getData() != null) {
+                success.setArticleId(articleResponseDTO.getData().getId());
+                success.setArticleUrl(articleResponseDTO.getData().getUrl());
+            }
+
+            metadata.setState(SessionState.ACTIVE);
+            metadata.setLastValidatedAt(LocalDateTime.now());
+            metadata.setLastError(null);
+            sessionStore.saveMetadata(metadata);
+            return success;
+        }
+
+        String upstreamMessage = firstNonBlank(articleResponseDTO.getMsg(), articleResponseDTO.getMessage());
+        if (isRateLimited(articleResponseDTO)) {
             ArticleFunctionResponse failed = buildFailedResponse(
-                    articleResponseDTO.getMsg() == null ? "CSDN 业务响应缺少成功状态码" : articleResponseDTO.getMsg(),
+                    RATE_LIMITED_REASON,
+                    upstreamMessage == null ? "CSDN 限制了短时间重复发帖，请稍后再试。" : upstreamMessage,
+                    "WAIT_AND_RETRY",
                     true
             );
             failed.setCode(articleResponseDTO.getCode());
-            failed.setMsg(failed.getMessage());
             return failed;
         }
 
-        ArticleFunctionResponse success = new ArticleFunctionResponse();
-        success.setStatus("SUCCESS");
-        success.setCode(articleResponseDTO.getCode());
-        success.setMessage(articleResponseDTO.getMsg());
-        success.setMsg(articleResponseDTO.getMsg());
-        success.setRetryable(Boolean.FALSE);
-        if (articleResponseDTO.getData() != null) {
-            success.setArticleId(articleResponseDTO.getData().getId());
-            success.setArticleUrl(articleResponseDTO.getData().getUrl());
+        if (isContentWriteFailure(articleResponseDTO)) {
+            ArticleFunctionResponse failed = buildFailedResponse(
+                    CONTENT_WRITE_FAILED_REASON,
+                    upstreamMessage == null ? "编辑器正文写入失败，请重试。" : upstreamMessage,
+                    "RETRY",
+                    true
+            );
+            failed.setCode(articleResponseDTO.getCode());
+            return failed;
         }
 
-        metadata.setState(SessionState.ACTIVE);
-        metadata.setLastValidatedAt(LocalDateTime.now());
-        metadata.setLastError(null);
-        sessionStore.saveMetadata(metadata);
-        return success;
+        ArticleFunctionResponse failed = buildFailedResponse(
+                PUBLISH_FAILED_REASON,
+                upstreamMessage == null ? "CSDN 发帖失败，请稍后重试。" : upstreamMessage,
+                "RETRY",
+                true
+        );
+        failed.setCode(articleResponseDTO.getCode());
+        return failed;
+    }
+
+    private boolean isPublishSuccess(ArticleResponseDTO articleResponseDTO) {
+        if (articleResponseDTO == null) {
+            return false;
+        }
+        Integer code = articleResponseDTO.getCode();
+        String message = firstNonBlank(articleResponseDTO.getMsg(), articleResponseDTO.getMessage());
+        return Integer.valueOf(0).equals(code)
+                || Integer.valueOf(200).equals(code)
+                || "success".equalsIgnoreCase(message);
+    }
+
+    private boolean isRateLimited(ArticleResponseDTO articleResponseDTO) {
+        if (articleResponseDTO == null) {
+            return false;
+        }
+        String message = firstNonBlank(articleResponseDTO.getMsg(), articleResponseDTO.getMessage());
+        return message != null && (message.contains("频繁") || message.contains("稍后再试"));
+    }
+
+    private boolean isContentWriteFailure(ArticleResponseDTO articleResponseDTO) {
+        if (articleResponseDTO == null) {
+            return false;
+        }
+        String message = firstNonBlank(articleResponseDTO.getMsg(), articleResponseDTO.getMessage());
+        return articleResponseDTO.getCode() != null
+                && articleResponseDTO.getCode() == 422
+                && message != null
+                && message.contains("正文写入失败");
+    }
+
+    private String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first;
+        }
+        if (second != null && !second.isBlank()) {
+            return second;
+        }
+        return null;
     }
 
     private boolean isAuthFailure(int statusCode, ArticleResponseDTO body) {
@@ -212,17 +314,18 @@ public class CSDNPort implements ICSDNPort {
         if (body == null) {
             return false;
         }
-        String message = body.getMsg();
-        if (message == null || message.isBlank()) {
-            message = body.getMessage();
-        }
+        String message = firstNonBlank(body.getMsg(), body.getMessage());
         return message != null && message.contains("登录");
     }
 
-    private ArticleFunctionResponse buildFailedResponse(String message, boolean retryable) {
+    private ArticleFunctionResponse buildFailedResponse(String reason, String message, String nextAction, boolean retryable) {
         ArticleFunctionResponse failed = new ArticleFunctionResponse();
         failed.setStatus("FAILED");
+        failed.setReason(reason);
         failed.setMessage(message);
+        failed.setMsg(message);
+        failed.setHumanMessage(message);
+        failed.setNextAction(nextAction);
         failed.setRetryable(retryable);
         return failed;
     }
